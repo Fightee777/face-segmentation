@@ -1,127 +1,123 @@
+# Imports
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 import tensorflow as tf
-from tqdm.keras import TqdmCallback
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, Flatten, Dense, Dropout, LeakyReLU, BatchNormalization
-from tensorflow.keras.initializers import glorot_uniform
-from tensorflow.keras.callbacks import ModelCheckpoint
-from tensorflow.keras.optimizers import SGD, Adam
+from tensorflow.keras.layers import (Input, Conv2D, MaxPooling2D, Flatten, Dense,
+                                     Dropout)
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
 
-
-# Ploting images with landmarks
-def plot_image_landmarks(img_array, df_landmarks, index):
-    plt.imshow(img_array[index, :, :, 0], cmap = 'gray')
-    plt.scatter(df_landmarks.iloc[index][0: -1: 2], df_landmarks.iloc[index][1: : 2], c = 'y')
+# Helper Functions
+def plot_image_landmarks(img_array, df_landmarks, index, scale=96.0):
+    """Plot one image with ground-truth facial keypoints."""
+    plt.imshow(img_array[index, :, :, 0], cmap='gray')
+    keypoints = df_landmarks.iloc[index].values * scale  # scale to pixel coords
+    xs = keypoints[0::2]
+    ys = keypoints[1::2]
+    plt.scatter(xs, ys, c='y')
+    plt.title("Ground Truth Keypoints")
     plt.show()
 
-def plot_img_preds(images, truth, pred, index):
+def plot_img_preds(images, truth_df, preds, index, scale=96.0):
+    """Plot image with ground-truth and predicted keypoints."""
     plt.imshow(images[index, :, :, 0], cmap='gray')
-
-    t = np.array(truth)[index]
-    plt.scatter(t[0::2], t[1::2], c='y')
-
-    p = pred[index, :]
-    plt.scatter(p[0::2], p[1::2], c='r')
-
+    true_pts = truth_df.iloc[index].values * scale  # rescale ground truth
+    pred_pts = preds[index] * scale  # rescale predictions
+    plt.scatter(true_pts[0::2], true_pts[1::2], c='y', label='Truth')
+    plt.scatter(pred_pts[0::2], pred_pts[1::2], c='r', label='Pred')
+    plt.legend()
+    plt.title(f"Prediction vs Truth (index {index})")
     plt.show()
 
-features = np.load('dataset/face_images.npz')
-features = features.get(features.files[0]) # images
-features = np.moveaxis(features, -1, 0)
-features = features.reshape(features.shape[0], features.shape[1], features.shape[1], 1)
+# Load .npz file and Reshape
+features_npz = np.load('dataset/face_images.npz')
+features = features_npz[features_npz.files[0]]
+print("Initial shape (from .npz):", features.shape)
 
+if features.shape[2] > 1000:
+    features = np.moveaxis(features, 2, 0)
+    print("Shape after moveaxis:", features.shape)
+
+if features.ndim == 3:
+    features = features[..., np.newaxis]
+print("Final features shape:", features.shape)
+
+# Load Keypoints & Filter
 keypoints = pd.read_csv('dataset/facial_keypoints.csv')
-keypoints.head()
+print("Original keypoints shape:", keypoints.shape)
+keypoints_clean = keypoints.dropna()
+print("After dropping NaN:", keypoints_clean.shape)
 
-# Cleaing data
-keypoints = keypoints.fillna(0)
-num_missing_keypoints = keypoints.isnull().sum(axis = 1)
-print(num_missing_keypoints)
+clean_indices = keypoints_clean.index
+features_clean = features[clean_indices, :, :, :] / 255.0  # normalize images
+keypoints_clean = keypoints_clean / 96.0  # normalize keypoints
+keypoints_clean.reset_index(drop=True, inplace=True)
 
-new_features = features[keypoints.index.values, :, :, :] #Nums of rows,w, H, Channels
-new_features = new_features / 255
-keypoints.reset_index(inplace = True, drop = True)
+plot_image_landmarks(features_clean, keypoints_clean, index=0)  # quick visual check
 
-plot_image_landmarks(new_features, keypoints, 18)
+# Train/Test Split
+x_train, x_test, y_train, y_test = train_test_split(
+    features_clean, keypoints_clean, test_size=0.2, random_state=42
+)
+print("Train shape:", x_train.shape, y_train.shape)
+print("Test shape:", x_test.shape, y_test.shape)
 
-x_train, x_test, y_train, y_test = train_test_split(new_features, keypoints, test_size=0.2)
+# Simple Data Generators
+train_datagen = ImageDataGenerator()
+test_datagen = ImageDataGenerator()
+train_generator = train_datagen.flow(x_train, y_train, batch_size=64, shuffle=True)
+test_generator = test_datagen.flow(x_test, y_test, batch_size=64, shuffle=False)
 
-img_size = 96
-
-model = Sequential()
-
-model.add(Input(shape=(img_size, img_size, 1)))
-model.add(BatchNormalization())
-model.add(Conv2D(32, (3,3), padding="same",kernel_initializer=glorot_uniform()))
-model.add(LeakyReLU(alpha=0.1))
-model.add(MaxPooling2D(pool_size=(2, 2)))
-model.add(Dropout(0.2))
-
-model.add(BatchNormalization())
-model.add(Conv2D(64, (3,3), padding="same",kernel_initializer=glorot_uniform()))
-model.add(LeakyReLU(alpha=0.1))
-model.add(MaxPooling2D(pool_size=(2, 2)))
-model.add(Dropout(0.2))
-
-model.add(BatchNormalization())
-model.add(Conv2D(128, (3,3), padding="same",kernel_initializer=glorot_uniform()))
-model.add(LeakyReLU(alpha=0.1))
-model.add(MaxPooling2D(pool_size=(2, 2)))
-model.add(Dropout(0.2))
-
-model.add(Flatten())
-model.add(Dense(256,kernel_initializer=glorot_uniform()))
-model.add(LeakyReLU(alpha=0.1))
-
-model.add(Dropout(0.5))
-
-model.add(Dense(64,kernel_initializer=glorot_uniform()))
-model.add(LeakyReLU(alpha=0))
-
-model.add(Dense(30,kernel_initializer=glorot_uniform()))
-
+# Build Simple CNN Model
+model = Sequential([
+    Input(shape=(96, 96, 1)),
+    Conv2D(32, (3, 3), activation='relu'),
+    MaxPooling2D(),
+    Conv2D(64, (3, 3), activation='relu'),
+    MaxPooling2D(),
+    Flatten(),
+    Dense(128, activation='relu'),
+    Dropout(0.2),
+    Dense(30)  # 15 keypoints * 2
+])
+model.compile(
+    optimizer=Adam(1e-3),
+    loss='mean_squared_error',
+    metrics=[tf.keras.metrics.MeanSquaredError(name='mse')]
+)
 model.summary()
-model.compile(loss='mean_squared_error', optimizer=Adam(), metrics=['accuracy'])
 
-BATCH_SIZE = 200
-EPOCHS = 2
-
+# Train the Model
+EPOCHS = 50
 history = model.fit(
-    x_train, y_train,
-    batch_size=BATCH_SIZE,
+    train_generator,
+    validation_data=test_generator,
     epochs=EPOCHS,
-    validation_data=(x_test, y_test),
-    shuffle=True,
-    verbose=1,
+    verbose=1
 )
 
-train_accuracy = history.history['accuracy']
-val_accuracy = history.history['val_accuracy']
-
-plt.plot(history.history['accuracy'], label='Accuracy (training data)')
-plt.plot(history.history['val_accuracy'], label='Accuracy (validation data)')
-plt.title('Accuracy for Facial keypoints')
-plt.ylabel('Accuracy value')
-plt.xlabel('No. epoch')
-plt.legend(loc="upper left")
+# Plot Training Curves
+plt.plot(history.history['mse'], label='MSE (train)')
+plt.plot(history.history['val_mse'], label='MSE (val)')
+plt.title('Training vs Validation MSE')
+plt.xlabel('Epoch')
+plt.ylabel('Mean Squared Error')
+plt.legend()
 plt.show()
 
-# plt.plot(history.history['mean_squared_error'], label='MSE (training data)')
-# plt.plot(history.history['val_mean_squared_error'], label='MSE (validation data)')
-plt.plot(history.history['loss'], label='MSE (training data)')
-plt.plot(history.history['val_loss'], label='MSE (validation data)')
-plt.title('MSE for Facial keypoints')
-plt.ylabel('MSE value')
-plt.xlabel('No. epoch')
-plt.legend(loc="upper left")
+plt.plot(history.history['loss'], label='Loss (train)')
+plt.plot(history.history['val_loss'], label='Loss (val)')
+plt.title('Training vs Validation Loss')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.legend()
 plt.show()
 
+# Evaluate Predictions
 y_pred = model.predict(x_test)
-print(y_pred)
-
-
-plot_img_preds(x_test, y_test, y_pred, 3)
-plot_img_preds(x_test, y_test, y_pred, 18)
+plot_img_preds(x_test, y_test, y_pred, index=0)
+plot_img_preds(x_test, y_test, y_pred, index=10)
+plot_img_preds(x_test, y_test, y_pred, index=25)
