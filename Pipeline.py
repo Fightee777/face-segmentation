@@ -21,15 +21,27 @@ def plot_image_landmarks(img_array, df_landmarks, index, scale=96.0):
     plt.title("Ground Truth Keypoints")
     plt.show()
 
-def plot_img_preds(images, truth_df, preds, index, scale=96.0):
-    """Plot image with ground-truth and predicted keypoints."""
-    plt.imshow(images[index, :, :, 0], cmap='gray')
-    true_pts = truth_df.iloc[index].values * scale  # rescale ground truth
-    pred_pts = preds[index] * scale  # rescale predictions
-    plt.scatter(true_pts[0::2], true_pts[1::2], c='y', label='Truth')
-    plt.scatter(pred_pts[0::2], pred_pts[1::2], c='r', label='Pred')
-    plt.legend()
-    plt.title(f"Prediction vs Truth (index {index})")
+def plot_img_preds_grid(images, truth_df, preds, start_index=0, scale=96.0, rows=5, cols=5):
+    """
+    Plot a grid (rows x cols) of images, each with ground-truth and predicted keypoints.
+    By default, it shows 25 images (5x5) starting from 'start_index'.
+    """
+    fig, axes = plt.subplots(rows, cols, figsize=(12, 12))
+    for i in range(rows * cols):
+        idx = start_index + i
+        ax = axes[i // cols, i % cols]
+        ax.imshow(images[idx, :, :, 0], cmap='gray')
+        true_pts = truth_df.iloc[idx].values * scale
+        pred_pts = preds[idx] * scale
+        ax.scatter(true_pts[0::2], true_pts[1::2], c='y', label='Truth')
+        ax.scatter(pred_pts[0::2], pred_pts[1::2], c='r', label='Pred')
+        ax.set_title(f"Index {idx}")
+        ax.axis('off')
+
+    # Create a single legend for the entire figure
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc='upper right')
+    plt.tight_layout()
     plt.show()
 
 # Load .npz file and Reshape
@@ -56,7 +68,8 @@ features_clean = features[clean_indices, :, :, :] / 255.0  # normalize images
 keypoints_clean = keypoints_clean / 96.0  # normalize keypoints
 keypoints_clean.reset_index(drop=True, inplace=True)
 
-plot_image_landmarks(features_clean, keypoints_clean, index=0)  # quick visual check
+# Quick visual check for first example
+plot_image_landmarks(features_clean, keypoints_clean, index=0)
 
 # Train/Test Split
 x_train, x_test, y_train, y_test = train_test_split(
@@ -118,6 +131,6 @@ plt.show()
 
 # Evaluate Predictions
 y_pred = model.predict(x_test)
-plot_img_preds(x_test, y_test, y_pred, index=0)
-plot_img_preds(x_test, y_test, y_pred, index=10)
-plot_img_preds(x_test, y_test, y_pred, index=25)
+
+# Final nxn grid with predicted vs truth keypoints
+plot_img_preds_grid(x_test, y_test, y_pred, start_index=0, scale=96.0, rows=3, cols=3)
