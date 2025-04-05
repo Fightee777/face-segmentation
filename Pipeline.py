@@ -1,4 +1,3 @@
-# Imports
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -44,7 +43,7 @@ def plot_img_preds_grid(images, truth_df, preds, start_index=0, scale=96.0, rows
     plt.tight_layout()
     plt.show()
 
-# Load .npz file and Reshape
+# Load .npz file and reshape
 features_npz = np.load('dataset/face_images.npz')
 features = features_npz[features_npz.files[0]]
 print("Initial shape (from .npz):", features.shape)
@@ -57,7 +56,7 @@ if features.ndim == 3:
     features = features[..., np.newaxis]
 print("Final features shape:", features.shape)
 
-# Load Keypoints & Filter
+# Load Keypoints & filter
 keypoints = pd.read_csv('dataset/facial_keypoints.csv')
 print("Original keypoints shape:", keypoints.shape)
 keypoints_clean = keypoints.dropna()
@@ -78,13 +77,13 @@ x_train, x_test, y_train, y_test = train_test_split(
 print("Train shape:", x_train.shape, y_train.shape)
 print("Test shape:", x_test.shape, y_test.shape)
 
-# Simple Data Generators
+# configurating NN
 train_datagen = ImageDataGenerator()
 test_datagen = ImageDataGenerator()
 train_generator = train_datagen.flow(x_train, y_train, batch_size=64, shuffle=True)
 test_generator = test_datagen.flow(x_test, y_test, batch_size=64, shuffle=False)
 
-# Build Simple CNN Model
+# Build CNN model
 model = Sequential([
     Input(shape=(96, 96, 1)),
     Conv2D(32, (3, 3), activation='relu'),
@@ -94,7 +93,7 @@ model = Sequential([
     Flatten(),
     Dense(128, activation='relu'),
     Dropout(0.2),
-    Dense(30)  # 15 keypoints * 2
+    Dense(30)  # 15 keypoints * 2(x, y)
 ])
 model.compile(
     optimizer=Adam(1e-3),
@@ -103,7 +102,7 @@ model.compile(
 )
 model.summary()
 
-# Train the Model
+# Train the model
 EPOCHS = 50
 history = model.fit(
     train_generator,
@@ -112,7 +111,7 @@ history = model.fit(
     verbose=1
 )
 
-# Plot Training Curves
+# Plot training curves
 plt.plot(history.history['mse'], label='MSE (train)')
 plt.plot(history.history['val_mse'], label='MSE (val)')
 plt.title('Training vs Validation MSE')
@@ -129,8 +128,8 @@ plt.ylabel('Loss')
 plt.legend()
 plt.show()
 
-# Evaluate Predictions
+# Evaluate predictions
 y_pred = model.predict(x_test)
 
-# Final nxn grid with predicted vs truth keypoints
+# Final NxN grid with predicted vs truth keypoints
 plot_img_preds_grid(x_test, y_test, y_pred, start_index=0, scale=96.0, rows=3, cols=3)
